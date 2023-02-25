@@ -1,2 +1,2 @@
 # AssemblyMarioGame
-A Mario-based platformer game written in ARM7 assembly
+A Mario-based platformer game written in ARM assembly
