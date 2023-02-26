@@ -59,32 +59,239 @@ wait2:
 	ldr r1, =OTHER_PIXBUF
 	str r1, [r0]
 	
-	mov r4, #100
-	mov r5, #100
+	//stores initial state of push button #0
+	mov r4, #0
+	ldr r5, =PUSH_BUTTONS
+	ldrb r5, [r5]
 	
+	ldrb r6, =mario
+	
+	mov r7, #0 //button press count
 	
 inf_loop:
-
-	// Place Your Test Code Here
-	//mov r0, #0
 	
 	bl ClearTextBuffer
 	ldrh r0, =0x0000
 	bl ClearVGA
 	
-	ldr r0, =sprite2
-	bl updateSprite
+	mov r0, #0
+	mov r1, #0
+	mov r2, r7
+	bl DrawNum
 	
-	ldr r0, =sprite2
-	bl drawSprite
-	
-	ldr r0, =sprite1
-	bl updateSprite
+renderSprites:
 	
 	ldr r0, =sprite1
 	bl drawSprite
 	
+	ldr r0, =sprite2
+	bl drawSprite
+	
+	bl setSwapFlag
+	
+	ldr r0, =sprite1
+	bl updateSprite
+	
+	ldr r0, =sprite2
+	bl updateSprite
+	
+	ldr r0, =sprite1
+	ldr r1, =sprite2
+	bl bounceIfSpritesCollide
+	
+	mov r0, #0
+	bl checkIfButtonBumped
+	add r7, r7, r0
+	
+	mov r0, #1
+	bl checkIfButtonBumped
+	add r7, r7, r0
+	
+	mov r0, #2
+	bl checkIfButtonBumped
+	add r7, r7, r0
+	
+	mov r0, #3
+	bl checkIfButtonBumped
+	add r7, r7, r0
+	
+	ldr r5, =PUSH_BUTTONS
+	ldrb r5, [r5]
+	
+	ldr r6, =prevButtonStates
+	strb r5, [r6]
+	
+infLoopEnd:
 	b inf_loop
+	
+bounceIfSpritesCollide:
+	//r0 = ptr to sprite1
+	//r1 = ptr to sprite2
+	
+	push {r4, r5, r6, r7, lr}
+	
+	mov r4, r0
+	mov r5, r1
+	
+	bl checkCollisionBetweenSprites
+	cmp r0, #1
+	bne endBounceIfSpritesCollide
+	
+	ldrh r6, [r4, #SPRITE_XSPEED]
+	mov r7, #-1
+	mul r6, r6, r7
+	strh r6, [r4, #SPRITE_XSPEED]
+	
+	ldrh r6, [r5, #SPRITE_XSPEED]
+	mul r6, r6, r7
+	strh r6, [r5, #SPRITE_XSPEED]
+
+endBounceIfSpritesCollide:
+	pop {r4, r5, r6, r7, pc}
+	
+checkCollisionBetweenSprites: //(sprite, sprite) => 0 or 1
+	//r0 = ptr to sprite 1
+	//r1 = ptr to sprite 2
+	
+	push {r4, r5, r6, r7, r8, r9, lr}
+	
+	ldrh r4, [r0, #SPRITE_X]
+	ldrh r5, [r0, #SPRITE_PIXMAP]
+	ldrh r5, [r5, #PIXMAP_WIDTH]
+	ldrh r6, [r1, #SPRITE_X]
+	ldrh r7, [r1, #SPRITE_PIXMAP]
+	ldrh r7, [r7, #PIXMAP_WIDTH]
+	
+	//if (sprite1.x + sprite1.width / 2 < sprite2.x + sprite2.width / 2
+	// && sprite1.x + sprite1.width / 2 > sprite2.x - sprite2.width / 2)
+	// then: colliding in x direction
+	
+collisionRight: //check if right side of sprite1 is between left and right sides of sprite2
+	add r8, r4, r5, lsr #1 //right side of sprite1
+	add r9, r6, r7, lsr #1 //right side of sprite2
+	cmp r8, r9
+	bgt collisionLeft
+	sub r9, r6, r7, lsr #1 //left side of sprite2
+	cmp r8, r9
+	blt collisionLeft
+	b collisionTop //sprites collide in x dir
+	
+collisionLeft: //check if left side of sprite1 is between left and right sides of sprite2
+	sub r8, r4, r5, lsr #1 //sprite1.x - sprite1.width / 2
+	cmp r8, r9 //compare left side of sprite1 with left side of sprite2
+	blt setCollisionToFalse
+	add r9, r6, r7, lsr #1
+	bgt setCollisionToFalse
+	
+collisionTop: //check if top of sprite1 is between top and bottom of sprite2
+
+	//if(sprite1.y - sprite1.height / 2 > sprite2.y - sprite2.height / 2
+	//&& sprite1.y - sprite1.height / 2 < sprite2.y + sprite2.height / 2)
+	//then: colliding in the y direction
+	
+	ldrh r4, [r0, #SPRITE_Y]
+	ldrh r5, [r0, #SPRITE_PIXMAP]
+	ldrh r5, [r5, #PIXMAP_HEIGHT]
+	ldrh r6, [r1, #SPRITE_Y]
+	ldrh r7, [r1, #SPRITE_PIXMAP]
+	ldrh r7, [r7, #PIXMAP_HEIGHT]
+	
+	sub r8, r4, r5, lsr #1 //r8 = top of sprite1
+	sub r9, r6, r7, lsr #1 //r9 = top of sprite2
+	
+	cmp r8, r9
+	blt collisionBottom
+	
+	add r9, r6, r7, lsr #1 //r9 = bottom of sprite2
+	cmp r8, r9
+	bgt collisionBottom
+	mov r0, #1
+	b endCheckSpriteCollision
+	
+collisionBottom:
+	add r8, r4, r5, lsr #1 //r8 = bottom of sprite1
+	
+	cmp r8, r9
+	bgt setCollisionToFalse
+	
+	sub r9, r6, r7, lsr #1 //r9 = top of sprite2
+	cmp r8, r9
+	blt setCollisionToFalse
+	mov r0, #1
+	b endCheckSpriteCollision
+
+setCollisionToFalse:
+	mov r0, #0
+
+endCheckSpriteCollision:
+	pop {r4, r5, r6, r7, r8, r9, pc}
+	
+checkIfButtonBumped:
+	//r0 = button #
+	
+	//returns buttonPressed ? 1 : 0
+	
+	push {r4, r5, r6, lr}
+	
+	//gets state of push button #0
+	ldr r5, =PUSH_BUTTONS
+	ldrb r4, [r5]
+	mov r5, #1
+	lsl r5, r5, r0
+	and r4, r4, r5 //gets the status of the desired button
+	
+	//if(buttonState == 1 || buttonState == lastButtonState) return false;
+	cmp r4, #1
+	beq buttonNotBumped
+	
+	ldr r5, =prevButtonStates
+	ldrb r5, [r5]
+	mov r6, #1
+	and r5, r5, r6, lsl r0
+	cmp r4, r5
+	beq buttonNotBumped
+	mov r0, #1
+	b endCheckIfButtonBumped
+	
+buttonNotBumped:
+	mov r0, #0
+	
+endCheckIfButtonBumped:
+	pop {r4, r5, r6, pc}
+	
+setSwapFlag:
+	push {r4, r5, lr}
+	
+	ldr r4, =STATUS_REG	
+	and r4, r4, #1
+	cmp r4, #0
+	bne endSetSwapFlag
+	
+	mov r4, #1
+	ldr r5, =BUF_REG
+	str r4, [r5]
+	
+endSetSwapFlag:
+	pop {r4, r5, pc}
+	
+swapPixmaps:
+	//r0 = ptr to pixmap1 (word)
+	//r1 = ptr to pixmap2 (word)
+	//r2 = ptr to sprite (sprite)
+	
+	push {r4, lr}
+	
+	ldr r4, [r2, #SPRITE_PIXMAP]
+	cmp r4, r0
+	beq sprite1_pixmap2
+	str r0, [r2, #SPRITE_PIXMAP]
+	b swapPixmapsEnd
+
+sprite1_pixmap2:
+	str r1, [r2, #SPRITE_PIXMAP]
+	
+swapPixmapsEnd:
+	pop {r4, pc}
 	
 updateSprite:
 	//r0 = ptr to sprite
@@ -316,12 +523,10 @@ drawStrLoop:
 	b exit
 	exit:
 	pop {r4, r5, r6, r7, r8, r9, r10, r11, r12, pc}
-	// Feel free to use helpful constants below
 DupByte:
 	// r0 = addr
 	// r1 = byteVal
 	// r2= len
-	// init
 	mov r3, #0
 	b for_cond
 for_body:
@@ -350,13 +555,6 @@ ClearVGA:
 	ldr r0, [r4]
 	ldr r2, =BUFFER_SIZE
 	bl DupByte
-	ldr r4, =STATUS_REG
-	cmp r4, #1
-	beq ClearVGAEnd
-	
-	ldr r4, =BUF_REG
-	mov r5, #1
-	str r5, [r4]
 	
 ClearVGAEnd:
 	pop {r4, r5, pc}
@@ -470,41 +668,40 @@ bit_blit_cond:
 	cmp r8, r12
 	blt bit_blit_body
 	
-	//flag that we should swap again
-	mov r4, #1
-	ldr r5, =BUF_REG
-	ldr r6, =STATUS_REG	
-	
-	str r4, [r5]
-	
 bit_blit_end:
 	pop {r4, r5, r6, r7, r8, r9, r10, r11, r12, pc}
-	
 	
 .data
 	// You can use this small simple data to test your BitBlit routine
 	// It should draw a small brown rectangle (transparent in the middle)
 	
+.align 2
+
+prevButtonStates:
+	.byte 0x0000
+
+.align 2
+
 sprite1:
 	.long mario
 	.hword 50 //sint16 x
 	.hword 100 //sint16 y
-	.hword 10 //sint16 x-speed
-	.hword 10 //sint16 y-speed
+	.hword 5 //sint16 x-speed
+	.hword 5 //sint16 y-speed
 
 sprite2:
 	.long mario
 	.hword 212 //sint16 x
-	.hword 50 //sint16 y
-	.hword 10 //sint16 x-speed
-	.hword 10 //sint16 y-speed
+	.hword 100 //sint16 y
+	.hword 5 //sint16 x-speed
+	.hword 5 //sint16 y-speed
 
 OriginX:
 	.word 0x00000000
 	
 .align 1
 SimplePix:
-	.hword 8, 8, 0xfffe
+	.hword 8, 8, 0xf7be
 	.hword 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4
 	.hword 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4
 	.hword 0xc4c4, 0xc4c4, 0xfffe, 0xfffe, 0xfffe, 0xfffe, 0xc4c4, 0xc4c4
@@ -515,7 +712,7 @@ SimplePix:
 	.hword 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4
 	
 mario:
-	.hword 64, 32, 0xf7be
+	.hword 64, 32, 0x0000
 	.hword 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be
 	.hword 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be
 	.hword 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be
