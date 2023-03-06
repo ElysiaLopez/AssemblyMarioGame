@@ -25,16 +25,25 @@
 .equ SPRITE_PIXMAP, 0
 .equ SPRITE_X, 4
 .equ SPRITE_Y, 6
-.equ SPRITE_XSPEED, 8
-.equ SPRITE_YSPEED, 10
+.equ SPRITE_MAX_XSPEED, 8
+.equ SPRITE_MAX_YSPEED, 10
+.equ SPRITE_CURR_XSPEED, 12
+.equ SPRITE_CURR_YSPEED, 14
 
 .equ PUSH_BUTTONS, 0xff200050
+
+.equ KEYBOARD_INPUT, 0xff200100
 
 .text
 
 .global _start
 _start:
 	
+// ***********************************************************************************
+// INIT PROGRAM
+// ***********************************************************************************
+
+
 	// Inital stack
 	mov sp, #0x800000
 	
@@ -59,16 +68,32 @@ wait2:
 	ldr r1, =OTHER_PIXBUF
 	str r1, [r0]
 	
-	//stores initial state of push button #0
+initGame:
+	//initialize button press count
+	mov r7, #0 
+	
+	//initialize sprite speeds
 	mov r4, #0
-	ldr r5, =PUSH_BUTTONS
-	ldrb r5, [r5]
+	ldr r5, =sprite1
+	//strh r4, [r5, #SPRITE_XSPEED]
+	//strh r4, [r5, #SPRITE_YSPEED]
 	
-	ldrb r6, =mario
+	ldr r5, =sprite2
+	//strh r4, [r5, #SPRITE_XSPEED]
+	//strh r4, [r5, #SPRITE_YSPEED]
 	
-	mov r7, #0 //button press count
+	mov r1, #1
+	ldr r2, =0xFF200101
+	//strb r1, [r2]
+	
+// ***********************************************************************************
+// UPDATE LOOP
+// ***********************************************************************************
+	
 	
 inf_loop:
+
+	//r5 = prev state of push buttons
 	
 	bl ClearTextBuffer
 	ldrh r0, =0x0000
@@ -78,6 +103,8 @@ inf_loop:
 	mov r1, #0
 	mov r2, r7
 	bl DrawNum
+	
+	bl handleKeyboardInput
 	
 renderSprites:
 	
@@ -99,31 +126,125 @@ renderSprites:
 	ldr r1, =sprite2
 	bl bounceIfSpritesCollide
 	
-	mov r0, #0
-	bl checkIfButtonBumped
-	add r7, r7, r0
-	
-	mov r0, #1
-	bl checkIfButtonBumped
-	add r7, r7, r0
-	
-	mov r0, #2
-	bl checkIfButtonBumped
-	add r7, r7, r0
-	
-	mov r0, #3
-	bl checkIfButtonBumped
-	add r7, r7, r0
-	
 	ldr r5, =PUSH_BUTTONS
 	ldrb r5, [r5]
 	
 	ldr r6, =prevButtonStates
 	strb r5, [r6]
 	
+	bl handleKeyboardInput
+	
 infLoopEnd:
 	b inf_loop
 	
+	
+// ***********************************************************************************
+// FUNCTIONS
+// ***********************************************************************************
+
+handleKeyboardInput: // () => void
+	push {lr}
+	ldr r0, =KEYBOARD_INPUT
+	ldrb r1, [r0]
+	
+	mov r0, r1
+	ldr r1, =sprite1
+	bl respondToKeyInput
+	
+	pop {pc}
+
+absoluteValue: // (sword num) => sword
+	//r0 = number (signed word)
+	//returns r0 = absolute value of number
+	
+	push {r4, lr}
+	
+	cmp r0, #0
+	bge endAbsoluteValue
+	mov r4, #-1
+	mul r0, r0, r4
+	
+endAbsoluteValue:
+	pop {r4, pc}
+
+respondToKeyInput: // (byte keyVal, word spritePtr) => void
+	//r0 = key input value (byte)
+	//r1 = ptr to sprite to move (word)
+	
+	push {r4, r5, lr}
+	
+	mov r4, r0
+	
+	cmp r4, #0xf0
+	beq keyReleased
+	
+	//b endRespondToKeyInput
+	cmp r4, #0xe0
+	beq newKey
+	
+	//beq keyReleased
+	
+	//if(prevKeyState == 1 || numBytesToRead != 0)
+	//    break out of function
+	/*ldr r4, =prevKeyState
+	ldrb r4, [r4]
+	cmp r4, #1 
+	bne endRespondToKeyInput
+	ldr r5, =KEYBOARD_INPUT
+	
+	//lsr r5, r5, #12
+	//cmp r5
+	*/
+	
+	// if(prevKeyState == 0) break;
+	//this means that the key was already released
+	ldr r4, =prevKeyState
+	ldrb r4, [r4]
+	cmp r4, #0
+	beq endRespondToKeyInput
+	
+	cmp r0, #0x6b
+	beq leftKey
+	
+	cmp r0, #0x74
+	beq rightKey
+	
+	cmp r0, #0x75
+	beq upKey
+	
+	cmp r0, #0x72
+	beq downKey
+	
+	b endRespondToKeyInput
+	
+newKey:
+	ldr r4, =prevKeyState
+	mov r5, #0x01
+	strb r5, [r4] 
+	b endRespondToKeyInput
+	
+leftKey:
+	ldrh r4, [r1, #SPRITE_MAX_XSPEED]
+	
+	b endRespondToKeyInput
+rightKey:
+	ldrh r4, [r1, #SPRITE_MAX_XSPEED]
+	mov r0, r4
+	bl absoluteValue
+	strh r0, [r1, #SPRITE_CURR_XSPEED]
+	
+	b endRespondToKeyInput
+upKey:
+downKey:
+keyReleased:
+	mov r4, #0
+	strh r4, [r1, #SPRITE_CURR_XSPEED]
+	ldr r5, =prevKeyState
+	strb r4, [r5]
+	
+endRespondToKeyInput:
+	pop {r4, r5, pc}
+
 bounceIfSpritesCollide:
 	//r0 = ptr to sprite1
 	//r1 = ptr to sprite2
@@ -137,14 +258,14 @@ bounceIfSpritesCollide:
 	cmp r0, #1
 	bne endBounceIfSpritesCollide
 	
-	ldrh r6, [r4, #SPRITE_XSPEED]
+	ldrh r6, [r4, #SPRITE_CURR_XSPEED]
 	mov r7, #-1
 	mul r6, r6, r7
-	strh r6, [r4, #SPRITE_XSPEED]
+	strh r6, [r4, #SPRITE_CURR_XSPEED]
 	
-	ldrh r6, [r5, #SPRITE_XSPEED]
+	ldrh r6, [r5, #SPRITE_CURR_XSPEED]
 	mul r6, r6, r7
-	strh r6, [r5, #SPRITE_XSPEED]
+	strh r6, [r5, #SPRITE_CURR_XSPEED]
 
 endBounceIfSpritesCollide:
 	pop {r4, r5, r6, r7, pc}
@@ -301,7 +422,7 @@ updateSprite:
 	ldrh r5, [r0, #SPRITE_PIXMAP]
 	ldrh r4, [r5, #PIXMAP_WIDTH]
 	
-	ldrh r5, [r0, #SPRITE_XSPEED]
+	ldrh r5, [r0, #SPRITE_CURR_XSPEED]
 	lsl r5, r5, #16
 	asr r5, r5, #16
 	ldrh r6, [r0, #SPRITE_X]
@@ -319,14 +440,14 @@ updateSprite:
 negateXSpeed:
 	mov r4, #-1
 	mul r5, r4, r5 //sprite.xspeed *= -1
-	strh r5, [r0, #SPRITE_XSPEED]
+	strh r5, [r0, #SPRITE_CURR_XSPEED]
 	add r6, r6, r5, lsl #1 //move the sprite in the opposite direction
 	
 checkY:
 	ldrh r5, [r0, #SPRITE_PIXMAP]
 	ldrh r4, [r5, #PIXMAP_HEIGHT]
 	
-	ldrh r5, [r0, #SPRITE_YSPEED]
+	ldrh r5, [r0, #SPRITE_CURR_YSPEED]
 	lsl r5, r5, #16
 	asr r5, r5, #16
 	ldrh r7, [r0, #SPRITE_Y]
@@ -344,7 +465,7 @@ checkY:
 negateYSpeed:
 	mov r8, #-1
 	mul r5, r5, r8
-	strh r5, [r0, #SPRITE_YSPEED]
+	strh r5, [r0, #SPRITE_CURR_YSPEED]
 	add r7, r7, r5, lsl #1
 	
 endUpdateSprite:
@@ -355,7 +476,6 @@ endUpdateSprite:
 	strh r7, [r0, #SPRITE_Y]
 	
 	pop {r4, r5, r6, r7, r8, pc}
-	
 	
 drawSprite:
 	//r0 = ptr to sprite
@@ -677,8 +797,14 @@ bit_blit_end:
 	
 .align 2
 
-prevButtonStates:
-	.byte 0x0000
+prevButtonStates: //previous states of all 4 push buttons
+	.hword 0x0000
+	
+prevKeyState:
+	//0x00 -> a key was just released (incoming byte was 0xF0)
+	//0x01 -> any new key was detected (incoming byte was 0xE0)
+	//0x02 -> the new key was read (incoming byte was key val)
+	.byte 0x00
 
 .align 2
 
@@ -686,15 +812,23 @@ sprite1:
 	.long mario
 	.hword 50 //sint16 x
 	.hword 100 //sint16 y
-	.hword 5 //sint16 x-speed
-	.hword 5 //sint16 y-speed
+	.hword 5 //sint16 max x-speed
+	.hword 5 //sint16 max y-speed
+	.hword 0 //sint16 curr x-speed
+	.hword 0 //sint16 curr y-speed
+
+.align 2
 
 sprite2:
 	.long mario
 	.hword 212 //sint16 x
-	.hword 100 //sint16 y
-	.hword 5 //sint16 x-speed
-	.hword 5 //sint16 y-speed
+	.hword 1200 //sint16 y
+	.hword 5 //sint16 max x-speed
+	.hword 5 //sint16 max y-speed
+	.hword 0 //sint16 curr x-speed
+	.hword 0 //sint curr y-speed
+
+.align 2
 
 OriginX:
 	.word 0x00000000
