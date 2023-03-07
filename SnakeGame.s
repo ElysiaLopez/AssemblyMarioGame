@@ -43,10 +43,10 @@ _start:
 // INIT PROGRAM
 // ***********************************************************************************
 
-
 	// Inital stack
 	mov sp, #0x800000
 	
+	ldr r0, =GreenSquare
 	ldr r0, =mario
 	
 	ldr r0, =BACK_BUF_ADDR //backbuffer
@@ -84,17 +84,25 @@ initGame:
 	
 	mov r1, #1
 	ldr r2, =0xFF200101
+	
+	mov r4, #0xf0
+	
+	b inf_loop
 	//strb r1, [r2]
 	
 // ***********************************************************************************
 // UPDATE LOOP
 // ***********************************************************************************
 	
-	
 inf_loop:
 
-	//r5 = prev state of push buttons
-	
+	ldr r4, =KEYBOARD_INPUT
+	ldrb r4, [r4]
+
+	mov r0, r4
+	ldr r1, =sprite1
+	bl respondToKeyInput
+
 	bl ClearTextBuffer
 	ldrh r0, =0x0000
 	bl ClearVGA
@@ -104,14 +112,9 @@ inf_loop:
 	mov r2, r7
 	bl DrawNum
 	
-	bl handleKeyboardInput
-	
-renderSprites:
+	//render sprites
 	
 	ldr r0, =sprite1
-	bl drawSprite
-	
-	ldr r0, =sprite2
 	bl drawSprite
 	
 	bl setSwapFlag
@@ -119,12 +122,7 @@ renderSprites:
 	ldr r0, =sprite1
 	bl updateSprite
 	
-	ldr r0, =sprite2
-	bl updateSprite
-	
-	ldr r0, =sprite1
-	ldr r1, =sprite2
-	bl bounceIfSpritesCollide
+	//store states of all push buttons
 	
 	ldr r5, =PUSH_BUTTONS
 	ldrb r5, [r5]
@@ -132,7 +130,7 @@ renderSprites:
 	ldr r6, =prevButtonStates
 	strb r5, [r6]
 	
-	bl handleKeyboardInput
+//	bl handleKeyboardInput
 	
 infLoopEnd:
 	b inf_loop
@@ -141,17 +139,6 @@ infLoopEnd:
 // ***********************************************************************************
 // FUNCTIONS
 // ***********************************************************************************
-
-handleKeyboardInput: // () => void
-	push {lr}
-	ldr r0, =KEYBOARD_INPUT
-	ldrb r1, [r0]
-	
-	mov r0, r1
-	ldr r1, =sprite1
-	bl respondToKeyInput
-	
-	pop {pc}
 
 absoluteValue: // (sword num) => sword
 	//r0 = number (signed word)
@@ -171,37 +158,13 @@ respondToKeyInput: // (byte keyVal, word spritePtr) => void
 	//r0 = key input value (byte)
 	//r1 = ptr to sprite to move (word)
 	
-	push {r4, r5, lr}
+	push {r4, r5, r6, lr}
 	
-	mov r4, r0
+	mov r6, r1
 	
-	cmp r4, #0xf0
-	beq keyReleased
-	
-	//b endRespondToKeyInput
-	cmp r4, #0xe0
-	beq newKey
-	
-	//beq keyReleased
-	
-	//if(prevKeyState == 1 || numBytesToRead != 0)
-	//    break out of function
-	/*ldr r4, =prevKeyState
-	ldrb r4, [r4]
-	cmp r4, #1 
-	bne endRespondToKeyInput
-	ldr r5, =KEYBOARD_INPUT
-	
-	//lsr r5, r5, #12
-	//cmp r5
-	*/
-	
-	// if(prevKeyState == 0) break;
-	//this means that the key was already released
-	ldr r4, =prevKeyState
-	ldrb r4, [r4]
-	cmp r4, #0
-	beq endRespondToKeyInput
+	mov r4, #0
+	strh r4, [r6, #SPRITE_CURR_XSPEED]
+	strh r4, [r6, #SPRITE_CURR_YSPEED]
 	
 	cmp r0, #0x6b
 	beq leftKey
@@ -220,30 +183,37 @@ respondToKeyInput: // (byte keyVal, word spritePtr) => void
 newKey:
 	ldr r4, =prevKeyState
 	mov r5, #0x01
-	strb r5, [r4] 
-	b endRespondToKeyInput
+	strb r5, [r4]
 	
 leftKey:
-	ldrh r4, [r1, #SPRITE_MAX_XSPEED]
-	
-	b endRespondToKeyInput
-rightKey:
-	ldrh r4, [r1, #SPRITE_MAX_XSPEED]
+	ldrh r4, [r6, #SPRITE_MAX_XSPEED]
 	mov r0, r4
 	bl absoluteValue
-	strh r0, [r1, #SPRITE_CURR_XSPEED]
-	
+	mov r4, #-1
+	mul r4, r0, r4
+	strh r4, [r6, #SPRITE_CURR_XSPEED]
+	b endRespondToKeyInput
+rightKey:
+	ldrh r4, [r6, #SPRITE_MAX_XSPEED]
+	mov r0, r4
+	bl absoluteValue
+	strh r0, [r6, #SPRITE_CURR_XSPEED]
 	b endRespondToKeyInput
 upKey:
+	ldrh r4, [r6, #SPRITE_MAX_YSPEED]
+	mov r0, r4
+	bl absoluteValue
+	mov r4, #-1
+	mul r4, r4, r0
+	strh r4, [r6, #SPRITE_CURR_YSPEED]
+	b endRespondToKeyInput
 downKey:
-keyReleased:
-	mov r4, #0
-	strh r4, [r1, #SPRITE_CURR_XSPEED]
-	ldr r5, =prevKeyState
-	strb r4, [r5]
-	
+	ldrh r4, [r6, #SPRITE_MAX_YSPEED]
+	mov r0, r4
+	bl absoluteValue
+	strh r0, [r6, #SPRITE_CURR_YSPEED]
 endRespondToKeyInput:
-	pop {r4, r5, pc}
+	pop {r4, r5, r6, pc}
 
 bounceIfSpritesCollide:
 	//r0 = ptr to sprite1
@@ -657,8 +627,6 @@ for_cond:
 	cmp r3, r2
 	blt for_body
 	bx lr
-	
-// Write your ClearTextBuffer, ClearVGA, and BitBlit routines below!
 
 ClearTextBuffer:
 	push {lr}
@@ -800,6 +768,9 @@ bit_blit_end:
 prevButtonStates: //previous states of all 4 push buttons
 	.hword 0x0000
 	
+prevKey:
+	.byte 0x00
+	
 prevKeyState:
 	//0x00 -> a key was just released (incoming byte was 0xF0)
 	//0x01 -> any new key was detected (incoming byte was 0xE0)
@@ -809,7 +780,7 @@ prevKeyState:
 .align 2
 
 sprite1:
-	.long mario
+	.long GreenSquare
 	.hword 50 //sint16 x
 	.hword 100 //sint16 y
 	.hword 5 //sint16 max x-speed
@@ -845,6 +816,48 @@ SimplePix:
 	.hword 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4
 	.hword 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4, 0xc4c4
 	
+.align 2
+GreenSquare:
+	.hword 10, 10, 0x0000
+	.hword 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00
+	.hword 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00
+	.hword 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00
+	.hword 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00
+	.hword 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00
+	.hword 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00
+	.hword 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00
+	.hword 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00
+	.hword 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00
+	.hword 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00, 0x0f00
+
+.align 2
+PinkSquare:
+	.hword 10, 10, 0x0000
+	.hword 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff
+	.hword 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff
+	.hword 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff
+	.hword 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff
+	.hword 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff
+	.hword 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff
+	.hword 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff
+	.hword 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff
+	.hword 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff
+	.hword 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff, 0xf0ff
+	
+.align 2
+YellowSquare:
+	.hword 10, 10, 0x000
+	.hword 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0
+	.hword 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0
+	.hword 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0
+	.hword 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0
+	.hword 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0
+	.hword 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0
+	.hword 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0
+	.hword 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0
+	.hword 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0
+	.hword 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0
+
 mario:
 	.hword 64, 32, 0x0000
 	.hword 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be
