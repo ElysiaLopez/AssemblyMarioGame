@@ -30,6 +30,10 @@
 .equ SPRITE_CURR_XSPEED, 12
 .equ SPRITE_CURR_YSPEED, 14
 
+.equ SNAKE_HEAD, 0
+.equ SNAKE_PIECES, 4
+.equ SNAKE_LENGTH, 8
+
 .equ PUSH_BUTTONS, 0xff200050
 
 .equ KEYBOARD_INPUT, 0xff200100
@@ -74,18 +78,14 @@ initGame:
 	
 	//initialize sprite speeds
 	mov r4, #0
-	ldr r5, =sprite1
-	//strh r4, [r5, #SPRITE_XSPEED]
-	//strh r4, [r5, #SPRITE_YSPEED]
-	
-	ldr r5, =sprite2
-	//strh r4, [r5, #SPRITE_XSPEED]
-	//strh r4, [r5, #SPRITE_YSPEED]
+	ldr r5, =snakeHead
 	
 	mov r1, #1
 	ldr r2, =0xFF200101
 	
 	mov r4, #0xf0
+	
+	
 	
 	b inf_loop
 	//strb r1, [r2]
@@ -100,27 +100,38 @@ inf_loop:
 	ldrb r4, [r4]
 
 	mov r0, r4
-	ldr r1, =sprite1
+	ldr r1, =snakeHead
 	bl respondToKeyInput
 
 	bl ClearTextBuffer
 	ldrh r0, =0x0000
 	bl ClearVGA
 	
-	mov r0, #0
-	mov r1, #0
-	mov r2, r7
+	mov r0, #1
+	mov r1, #1
+	ldr r2, =PointsStr
+	bl DrawStr
+	
+	mov r0, #10
+	mov r1, #1
+	ldr r2, =Points
+	ldrb r2, [r2]
 	bl DrawNum
 	
 	//render sprites
 	
-	ldr r0, =sprite1
+	ldr r0, =snakeHead
+	bl drawSprite
+	
+	ldr r0, =food
 	bl drawSprite
 	
 	bl setSwapFlag
 	
-	ldr r0, =sprite1
+	ldr r0, =snakeHead
 	bl updateSprite
+	
+	bl checkFoodEaten
 	
 	//store states of all push buttons
 	
@@ -139,6 +150,56 @@ infLoopEnd:
 // ***********************************************************************************
 // FUNCTIONS
 // ***********************************************************************************
+
+growSnake:
+	push {lr}
+	
+endGrowSnake:
+	pop {pc}
+
+checkFoodEaten:
+	push {r4, r5, lr}
+	
+	ldr r0, =snakeHead
+	ldr r1, =food
+	bl checkCollisionBetweenSprites
+	
+	cmp r0, #1
+	bne endCheckFoodEaten
+	
+	ldr r4, =Points
+	ldrb r5, [r4]
+	
+	add r5, r5, #1
+	strb r5, [r4]
+	
+	bl changeFoodPos
+	bl growSnake
+	
+endCheckFoodEaten:
+	pop {r4, r5, pc}
+
+//changes the food position coordinates to a random x and y
+changeFoodPos: //() => void
+	push {r4, r5, r6, r7, r8, lr}
+	
+	ldr r4, =randomIndex
+	ldrb r8, [r4] //r4 = randomIndex
+	
+	ldr r7, =food
+	ldr r5, =randomNums
+	
+	ldrb r6, [r5, r8]
+	strb r6, [r7, #SPRITE_X]
+	
+	add r8, r8, #1
+	ldrb r6, [r8]
+	strb r6, [r7, #SPRITE_Y]
+	
+	add r8, r8, #1
+	strb r8, [r4]
+	
+	pop {r4, r5, r6, r7, r8, pc}
 
 absoluteValue: // (sword num) => sword
 	//r0 = number (signed word)
@@ -160,8 +221,14 @@ respondToKeyInput: // (byte keyVal, word spritePtr) => void
 	
 	push {r4, r5, r6, lr}
 	
-	mov r6, r1
+checkKey:
+	cmp r0, #0xf0
+	beq endRespondToKeyInput
 	
+	cmp r0, #0xe0
+	beq endRespondToKeyInput
+	
+	mov r6, r1
 	mov r4, #0
 	strh r4, [r6, #SPRITE_CURR_XSPEED]
 	strh r4, [r6, #SPRITE_CURR_YSPEED]
@@ -582,6 +649,7 @@ DrawStr:
 	// Draws a string at (r0, r1)
 	// r0 - x left (not in pixels but in character position)
 	// r1 - y top  (not in pixels but in character position)
+	// r2 - ptr to string
 	push {r4, r5, r6, r7, r8, r9, r10, r11, r12, lr}
 	//calculate full offset based on r0, r1
 	mov r4, #128 
@@ -595,7 +663,7 @@ DrawStr:
 	mov r4, #0
 	mov r5, r0
 	mov r8, #0
-	ldrb r7, =TestStr
+	mov r7, r2
 	ldr r6, =CHARBUF
 	ldrb r9, [r7] //load character from memory address
 drawStrLoop:
@@ -765,6 +833,15 @@ bit_blit_end:
 	
 .align 2
 
+PointsStr:
+	.string "Points: "
+	
+.align 2
+Points:
+	.byte 0x00
+
+.align 2
+
 prevButtonStates: //previous states of all 4 push buttons
 	.hword 0x0000
 	
@@ -776,10 +853,25 @@ prevKeyState:
 	//0x01 -> any new key was detected (incoming byte was 0xE0)
 	//0x02 -> the new key was read (incoming byte was key val)
 	.byte 0x00
+	
+.align 2
+/*
+struct Snake
+{
+	ptr to snakeHead : word,
+	ptr to snakePieces array : word
+	snakeLength : byte
+}
+*/
 
 .align 2
+snake:
+	.long snakeHead
+	.long snakePieces
+	.byte 0x00
 
-sprite1:
+.align 2
+snakeHead:
 	.long GreenSquare
 	.hword 50 //sint16 x
 	.hword 100 //sint16 y
@@ -787,13 +879,46 @@ sprite1:
 	.hword 5 //sint16 max y-speed
 	.hword 0 //sint16 curr x-speed
 	.hword 0 //sint16 curr y-speed
+	
+//capacity: 30
+.align 2
+snakePieces:
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
+	.word 0x00000000
 
 .align 2
 
-sprite2:
-	.long mario
-	.hword 212 //sint16 x
-	.hword 1200 //sint16 y
+food:
+	.long PinkSquare
+	.hword 50 //sint16 x
+	.hword 50 //sint16 y
 	.hword 5 //sint16 max x-speed
 	.hword 5 //sint16 max y-speed
 	.hword 0 //sint16 curr x-speed
@@ -1066,4 +1191,10 @@ mario:
 	.hword 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be
 	.hword 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be, 0xf7be,0xf7be
 	
+.align 1
+randomIndex:	
+	.byte 0x00
 	
+.align 1
+randomNums:
+	.byte 0, 20, 202, 105, 179, 140, 112, 160, 236, 58, 13, 36, 63, 59, 35, 112, 105, 199, 110, 206, 213, 81, 57, 110, 218, 74, 195, 185, 214, 173, 190, 182, 179, 68, 208, 14, 33, 220, 215, 149, 119, 174, 130, 208, 51, 197, 204, 156, 26, 160, 2, 186, 64, 183, 143, 164, 114, 68, 120, 91, 165, 11, 93, 68, 96, 93, 150, 186, 24, 85, 15, 133, 235, 203, 111, 149, 172, 116, 177, 108, 159, 49, 123, 78, 152, 20, 37, 100, 32, 31, 77, 145, 69, 238, 158, 113, 127, 226, 103, 70, 164, 17
