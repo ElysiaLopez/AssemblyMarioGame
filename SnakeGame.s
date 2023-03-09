@@ -120,18 +120,18 @@ inf_loop:
 	
 	//render sprites
 	
-	ldr r0, =snakeHead
-	bl drawSprite
+	//ldr r0, =snakeHead
+	//bl drawSprite
+	bl drawSnake
 	
 	ldr r0, =food
 	bl drawSprite
 	
 	bl setSwapFlag
 	
-	ldr r0, =snakeHead
-	bl updateSprite
-	
 	bl checkFoodEaten
+	
+	bl updateSnake
 	
 	//store states of all push buttons
 	
@@ -151,11 +151,124 @@ infLoopEnd:
 // FUNCTIONS
 // ***********************************************************************************
 
+drawSnake:
+	push {r4, r5, r6, r7, r8, r9, lr}
+	
+	/*
+	for(int i = 0; i < snakeLength; i++)
+	{
+		drawSprite(snakePieces[i]);
+	}
+	drawSprite(snakeHead);
+	*/
+	
+	mov r4, #0
+	ldr r5, =snakeBodyLength
+	ldrb r5, [r5]
+	
+	ldr r6, =snakePieces
+	
+	ldr r9, =snakeHead
+	ldr r9, [r9, #SPRITE_PIXMAP] //r9 = ptr to snake bitmap
+	
+	b drawSnakeCond
+	
+drawSnakeLoop:
+	ldr r7, [r6, r4, lsl #2] //position
+	lsr r8, r7, #16 //x-coord
+	lsl r9, r7, #16
+	lsr r9, r9, #16 //y-cord
+	ldr r0, =YellowSquare
+	mov r1, r8
+	mov r2, r9
+	bl BitBlit
+	
+	add r4, r4, #1
+
+drawSnakeCond:
+	cmp r4, r5
+	blt drawSnakeLoop
+	
+	ldr r0, =snakeHead
+	bl drawSprite
+	
+endDrawSnake:
+	pop {r4, r5, r6, r7, r8, r9, pc}
+
+updateSnake:
+	push {r4, r5, r6, r7, r8, r9, r10, lr}
+
+	/*
+	for(int i = snakeLength - 1; i > 0; i--)
+	{
+		snakePieces[i].Pos = snakePieces[i - 1].Pos;
+	}
+	
+	snakePieces[0].Pos = snakeHead.Pos;
+	
+	updateSprite(snakeHead);
+	*/
+	
+	ldr r4, =snakeBodyLength
+	ldrb r4, [r4]
+	sub r4, r4, #1 //r4 = snakeLength - 1
+	
+	ldr r5, =snakePieces
+	
+	b updateSnakePiecesCond
+	
+updateSnakePiecesLoop:
+
+	sub r6, r4, #1
+	ldr r7, [r5, r6, lsl #2]
+	str r7, [r5, r4, lsl #2]
+	
+	subs r4, r4, #1
+
+updateSnakePiecesCond:
+	cmp r4, #0
+	bgt updateSnakePiecesLoop
+	
+	ldr r8, =snakeHead
+	ldrh r9, [r8, #SPRITE_X]
+	ldrh r10, [r8, #SPRITE_Y]
+	lsl r9, r9, #16
+	orr r9, r9, r10
+	str r9, [r5]
+	
+	ldr r0, =snakeHead
+	bl updateSprite
+
+endUpdateSnake:
+	pop {r4, r5, r6, r7, r8, r9, r10, pc}
+
 growSnake:
-	push {lr}
+	push {r4, r5, r6, r7, r8, r9, r10, r11, r12, lr}
+	
+	//TODO: have this work for when the snake already has a body
+	
+	ldr r4, =snakeHead
+	ldrh r5, [r4, #SPRITE_CURR_XSPEED]
+	ldrh r6, [r4, #SPRITE_CURR_YSPEED]
+	
+	ldrh r7, [r4, #SPRITE_X]
+	ldrh r8, [r4, #SPRITE_Y]
+	
+	ldr r9, [r4, #SPRITE_PIXMAP]
+	ldrh r9, [r9, #PIXMAP_WIDTH]
+	
+	ldr r10, =snakeBodyLength
+	ldrb r11, [r10]
+	
+	mov r12, r7
+	lsl r7, r7, #16
+	orr r7, r7, r8
+	
+	add r11, r11, #1
+	strb r11, [r10]
 	
 endGrowSnake:
-	pop {pc}
+	pop {r4, r5, r6, r7, r8, r9, r10, r11, r12, pc}
 
 checkFoodEaten:
 	push {r4, r5, lr}
@@ -336,6 +449,7 @@ collisionRight: //check if right side of sprite1 is between left and right sides
 	
 collisionLeft: //check if left side of sprite1 is between left and right sides of sprite2
 	sub r8, r4, r5, lsr #1 //sprite1.x - sprite1.width / 2
+	sub r9, r6, r7, lsr #1 //left side of sprite2
 	cmp r8, r9 //compare left side of sprite1 with left side of sprite2
 	blt setCollisionToFalse
 	add r9, r6, r7, lsr #1
@@ -368,6 +482,7 @@ collisionTop: //check if top of sprite1 is between top and bottom of sprite2
 	
 collisionBottom:
 	add r8, r4, r5, lsr #1 //r8 = bottom of sprite1
+	add r9, r6, r7, lsr #1 //r9 = bottom of sprite2
 	
 	cmp r8, r9
 	bgt setCollisionToFalse
@@ -865,9 +980,7 @@ struct Snake
 */
 
 .align 2
-snake:
-	.long snakeHead
-	.long snakePieces
+snakeBodyLength:
 	.byte 0x00
 
 .align 2
@@ -875,8 +988,8 @@ snakeHead:
 	.long GreenSquare
 	.hword 50 //sint16 x
 	.hword 100 //sint16 y
-	.hword 5 //sint16 max x-speed
-	.hword 5 //sint16 max y-speed
+	.hword 10 //sint16 max x-speed
+	.hword 10 //sint16 max y-speed
 	.hword 0 //sint16 curr x-speed
 	.hword 0 //sint16 curr y-speed
 	
@@ -917,8 +1030,8 @@ snakePieces:
 
 food:
 	.long PinkSquare
-	.hword 50 //sint16 x
-	.hword 50 //sint16 y
+	.hword 100 //sint16 x
+	.hword 110 //sint16 y
 	.hword 5 //sint16 max x-speed
 	.hword 5 //sint16 max y-speed
 	.hword 0 //sint16 curr x-speed
@@ -1197,4 +1310,4 @@ randomIndex:
 	
 .align 1
 randomNums:
-	.byte 0, 20, 202, 105, 179, 140, 112, 160, 236, 58, 13, 36, 63, 59, 35, 112, 105, 199, 110, 206, 213, 81, 57, 110, 218, 74, 195, 185, 214, 173, 190, 182, 179, 68, 208, 14, 33, 220, 215, 149, 119, 174, 130, 208, 51, 197, 204, 156, 26, 160, 2, 186, 64, 183, 143, 164, 114, 68, 120, 91, 165, 11, 93, 68, 96, 93, 150, 186, 24, 85, 15, 133, 235, 203, 111, 149, 172, 116, 177, 108, 159, 49, 123, 78, 152, 20, 37, 100, 32, 31, 77, 145, 69, 238, 158, 113, 127, 226, 103, 70, 164, 17
+	.byte 120, 202, 105, 179, 140, 112, 160, 236, 58, 13, 36, 63, 59, 35, 112, 105, 199, 110, 206, 213, 81, 57, 110, 218, 74, 195, 185, 214, 173, 190, 182, 179, 68, 208, 14, 33, 220, 215, 149, 119, 174, 130, 208, 51, 197, 204, 156, 26, 160, 2, 186, 64, 183, 143, 164, 114, 68, 120, 91, 165, 11, 93, 68, 96, 93, 150, 186, 24, 85, 15, 133, 235, 203, 111, 149, 172, 116, 177, 108, 159, 49, 123, 78, 152, 20, 37, 100, 32, 31, 77, 145, 69, 238, 158, 113, 127, 226, 103, 70, 164, 17
