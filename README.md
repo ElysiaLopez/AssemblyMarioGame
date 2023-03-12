@@ -1,2 +1,2 @@
-# AssemblyMarioGame
-A Mario-based platformer game written in ARM assembly
+# AssemblySnakegame
+A snake game written in ARM assembly
