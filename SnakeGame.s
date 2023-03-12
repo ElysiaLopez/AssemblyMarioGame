@@ -1,3 +1,27 @@
+/*
+
+Elysia Lopez / esl6250
+
+Snake game where the user tries to gain as many points as possible before losing all lives.
+
+Advanced features:
+- Gravity or Other Forces (snake accelerates when an arrow key is held down)
+- Powerups (NU logo as life powerup)
+- Complex scoring system (each food gives a different amount of points)
+	- Pink food: 1 pt
+	- Blue food: 2 pt
+	- White food: 5 pt
+
+How to play:
+- Use the arrow keys to move the snake.
+- Hold down an arrow key to accelerate in that direction. You lose the acceleration when you change direction.
+- Try to collect the food and rack up as many points as possible
+- Every time you run into a wall, you bounce off but you lose a life
+- If you lose all your lives, you lose the game.
+- If you reach 25 points, you win the game.
+
+*/
+
 // These are addresses for the pixel buffer and text buffer
 .EQU PIX_BUFFER, 0xc8000000
 .EQU TEXT_BUFFER, 0xc9000000
@@ -30,9 +54,7 @@
 .equ SPRITE_CURR_XSPEED, 12
 .equ SPRITE_CURR_YSPEED, 14
 
-.equ SNAKE_HEAD, 0
-.equ SNAKE_PIECES, 4
-.equ SNAKE_LENGTH, 8
+.equ SNAKE_ACCEL, 16
 
 .equ PUSH_BUTTONS, 0xff200050
 
@@ -83,9 +105,24 @@ initGame:
 	mov r1, #1
 	ldr r2, =0xFF200101
 	
-	mov r4, #0xf0
+	bl ClearTextBuffer
+	ldrh r0, =0x0000
+	bl ClearVGA
 	
+	mov r0, #1
+	mov r1, #1
+	ldr r2, =StartText
+	bl DrawStr
 	
+	ldr r4, =KEYBOARD_INPUT
+	ldrb r5, [r4]
+	
+waitForKeyPressLoop:
+	ldr r4, =KEYBOARD_INPUT
+	ldr r6, [r4]
+	
+	cmp r6, r5
+	beq waitForKeyPressLoop
 	
 	b inf_loop
 	//strb r1, [r2]
@@ -96,8 +133,96 @@ initGame:
 	
 inf_loop:
 
+gameLoop:
+
+	//check player won (reached 25 pts)
+	ldr r0, =Points
+	ldrb r0, [r0]
+	cmp r0, #25
+
+	bge wonGame
+
+	//check player lost all their lives
+	
+	ldr r0, =Lives
+	ldrb r0, [r0]
+	cmp r0, #0
+
+	ble lostGame
+
+readBytesLoop:
 	ldr r4, =KEYBOARD_INPUT
-	ldrb r4, [r4]
+	ldr r4, [r4]
+	lsr r6, r4, #16
+	
+	and r7, r4, #0xff
+	
+	cmp r7, #0xf0
+	bne notReleased
+	ldr r9, =numKeyRepetitions
+	mov r8, #0
+	strb r8, [r9]
+	ldr r9, =prevKey
+	mov r8, #0xf0
+	strb r8, [r9]
+	
+	mov r8, #0xff
+	ldr r9, =KEYBOARD_INPUT
+	strb r8, [r9]
+	
+	ldrb r4, [r4] // read another byte from the stream to discard it since that key was released
+	
+	b readBytesRest
+	
+notReleased:
+	cmp r6, #0
+	bhi readBytesLoop
+	
+	mov r4, r7
+	
+	ldr r5, =prevKey
+	ldrb r6, [r5] //r6 = last key pressed
+	
+	strb r4, [r5] //r4 = 
+	
+	cmp r4, r6
+	bne diffKey
+	
+	cmp r4, #0xf0
+	beq diffKey
+	
+	cmp r4, #0xaa
+	beq diffKey
+	
+	ldr r7, =numKeyRepetitions
+	ldrb r5, [r7]
+	
+	add r8, r5, #1
+	strb r8, [r7]
+	
+	cmp r5, #3
+	blt readBytesRest
+	
+	mov r6, #0
+	strb r6, [r7]
+	
+	ldr r6, =snakeHead
+	ldrh r7, [r6, #SNAKE_ACCEL]
+	add r7, r7, #1
+	strh r7, [r6, #SNAKE_ACCEL]
+	
+	b readBytesRest
+
+diffKey:
+
+	ldr r7, =numKeyRepetitions
+	mov r6, #0
+	strb r6, [r7]
+	
+	ldr r7, =snakeHead
+	strb r6, [r7, #SNAKE_ACCEL]
+
+readBytesRest:
 
 	mov r0, r4
 	ldr r1, =snakeHead
@@ -118,10 +243,17 @@ inf_loop:
 	ldrb r2, [r2]
 	bl DrawNum
 	
-	//render sprites
+	mov r0, #70
+	mov r1, #1
+	ldr r2, =LivesStr
+	bl DrawStr
 	
-	//ldr r0, =snakeHead
-	//bl drawSprite
+	mov r0, #78
+	mov r1, #1
+	ldr r2, =Lives
+	ldrb r2, [r2]
+	bl DrawNum
+	
 	bl drawSnake
 	
 	ldr r0, =food
@@ -131,6 +263,9 @@ inf_loop:
 	bl drawSprite
 	
 	ldr r0, =bestFood
+	bl drawSprite
+	
+	ldr r0, =powerup
 	bl drawSprite
 	
 	bl setSwapFlag
@@ -147,7 +282,37 @@ inf_loop:
 	ldr r6, =prevButtonStates
 	strb r5, [r6]
 	
-//	bl handleKeyboardInput
+	b gameLoop
+	
+wonGame:
+
+	bl ClearTextBuffer
+	ldrh r0, =0x0000
+	bl ClearVGA
+	
+wonGameLoop:
+
+	mov r0, #1
+	mov r1, #1
+	ldr r2, =WinStr
+	bl DrawStr
+
+	b wonGameLoop
+
+lostGame:
+
+	bl ClearTextBuffer
+	ldrh r0, =0x0000
+	bl ClearVGA
+	
+lostGameLoop:
+
+	mov r0, #1
+	mov r1, #1
+	ldr r2, =LoseStr
+	bl DrawStr
+
+	b lostGameLoop
 	
 infLoopEnd:
 	b inf_loop
@@ -156,7 +321,7 @@ infLoopEnd:
 // ***********************************************************************************
 // FUNCTIONS
 // ***********************************************************************************
-
+	
 drawSnake:
 	push {r4, r5, r6, r7, r8, r9, lr}
 	
@@ -250,8 +415,6 @@ endUpdateSnake:
 growSnake:
 	push {r4, r5, r6, r7, r8, r9, r10, r11, r12, lr}
 	
-	//TODO: have this work for when the snake already has a body
-	
 	ldr r4, =snakeHead
 	ldrh r5, [r4, #SPRITE_CURR_XSPEED]
 	ldrh r6, [r4, #SPRITE_CURR_YSPEED]
@@ -321,7 +484,7 @@ checkBestFoodEaten:
 	bl checkCollisionBetweenSprites
 	
 	cmp r0, #1
-	bne endCheckFoodEaten
+	bne checkPowerupEaten
 
 	add r5, r5, #5
 	strb r5, [r4]
@@ -329,6 +492,24 @@ checkBestFoodEaten:
 	ldr r0, =bestFood
 	bl changeFoodPos
 	bl growSnake
+	b endCheckFoodEaten
+	
+checkPowerupEaten:
+
+	ldr r0, =snakeHead
+	ldr r1, =powerup
+	bl checkCollisionBetweenSprites
+	
+	cmp r0, #1
+	bne endCheckFoodEaten
+	
+	ldr r4, =Lives
+	ldrb r5, [r4]
+	add r5, r5, #1
+	strb r5, [r4]
+
+	ldr r0, =powerup
+	bl changeFoodPos
 	b endCheckFoodEaten
 	
 endCheckFoodEaten:
@@ -371,13 +552,12 @@ absoluteValue: // (sword num) => sword
 endAbsoluteValue:
 	pop {r4, pc}
 
-respondToKeyInput: // (byte keyVal, word spritePtr) => void
+respondToKeyInput: // (byte keyVal, snake* spritePtr) => void
 	//r0 = key input value (byte)
 	//r1 = ptr to sprite to move (word)
 	
-	push {r4, r5, r6, lr}
+	push {r4, r5, r6, r7, lr}
 	
-checkKey:
 	cmp r0, #0xf0
 	beq endRespondToKeyInput
 	
@@ -385,9 +565,11 @@ checkKey:
 	beq endRespondToKeyInput
 	
 	mov r6, r1
-	mov r4, #0
-	strh r4, [r6, #SPRITE_CURR_XSPEED]
-	strh r4, [r6, #SPRITE_CURR_YSPEED]
+	
+	ldrh r7, [r6, #SNAKE_ACCEL]
+	
+	cmp r0, #0xf0
+	beq releasedKey
 	
 	cmp r0, #0x6b
 	beq leftKey
@@ -403,40 +585,57 @@ checkKey:
 	
 	b endRespondToKeyInput
 	
-newKey:
-	ldr r4, =prevKeyState
-	mov r5, #0x01
+releasedKey:
+	ldr r4, =KEYBOARD_INPUT
+	mov r5, #0xff
+	strb r5, [r4]
+	
+	ldr r4, =prevKey
+	mov r5, #0x00
 	strb r5, [r4]
 	
 leftKey:
 	ldrh r4, [r6, #SPRITE_MAX_XSPEED]
 	mov r0, r4
 	bl absoluteValue
+	add r0, r0, r7
 	mov r4, #-1
 	mul r4, r0, r4
 	strh r4, [r6, #SPRITE_CURR_XSPEED]
+	mov r4, #0
+	strh r4, [r6, #SPRITE_CURR_YSPEED]
+	
 	b endRespondToKeyInput
 rightKey:
 	ldrh r4, [r6, #SPRITE_MAX_XSPEED]
 	mov r0, r4
 	bl absoluteValue
+	add r0, r0, r7
 	strh r0, [r6, #SPRITE_CURR_XSPEED]
+	mov r4, #0
+	strh r4, [r6, #SPRITE_CURR_YSPEED]
 	b endRespondToKeyInput
 upKey:
 	ldrh r4, [r6, #SPRITE_MAX_YSPEED]
 	mov r0, r4
 	bl absoluteValue
+	add r0, r0, r7
 	mov r4, #-1
 	mul r4, r4, r0
 	strh r4, [r6, #SPRITE_CURR_YSPEED]
+	mov r4, #0
+	strh r4, [r6, #SPRITE_CURR_XSPEED]
 	b endRespondToKeyInput
 downKey:
 	ldrh r4, [r6, #SPRITE_MAX_YSPEED]
 	mov r0, r4
 	bl absoluteValue
+	add r0, r0, r7
 	strh r0, [r6, #SPRITE_CURR_YSPEED]
+	mov r4, #0
+	strh r4, [r6, #SPRITE_CURR_XSPEED]
 endRespondToKeyInput:
-	pop {r4, r5, r6, pc}
+	pop {r4, r5, r6, r7, pc}
 
 bounceIfSpritesCollide:
 	//r0 = ptr to sprite1
@@ -638,6 +837,11 @@ negateXSpeed:
 	strh r5, [r0, #SPRITE_CURR_XSPEED]
 	add r6, r6, r5, lsl #1 //move the sprite in the opposite direction
 	
+	ldr r8, =Lives
+	ldrb r7, [r8]
+	sub r7, r7, #1
+	strb r7, [r8]
+	
 checkY:
 	ldrh r5, [r0, #SPRITE_PIXMAP]
 	ldrh r4, [r5, #PIXMAP_HEIGHT]
@@ -662,6 +866,11 @@ negateYSpeed:
 	mul r5, r5, r8
 	strh r5, [r0, #SPRITE_CURR_YSPEED]
 	add r7, r7, r5, lsl #1
+	
+	ldr r8, =Lives
+	ldrb r5, [r8]
+	sub r5, r5, #1
+	strb r5, [r8]
 	
 endUpdateSprite:
 	//r6 = updated x pos
@@ -825,7 +1034,7 @@ DrawStr:
 	ldr r6, =CHARBUF
 	ldrb r9, [r7] //load character from memory address
 drawStrLoop:
-	//check that we are not writing across the screen
+	//check that we are not writing past the screen
 	add r11, r0, r4
 	cmp r11, r12
 	beq exit
@@ -990,6 +1199,32 @@ bit_blit_end:
 	// It should draw a small brown rectangle (transparent in the middle)
 	
 .align 2
+WinStr:
+	.string "Congrats! You won!"
+
+.align 2
+LoseStr:
+	.string "Sorry, you lost all your lives :("
+	
+.align 1
+GameState:
+	//0 = Gameplay
+	//1 = End screen
+	.byte 0x00
+	
+.align 2
+LivesStr:
+	.string "Lives: "
+	
+.align 2
+Lives:
+	.byte 3
+
+.align 2
+StartText:
+	.string "Use arrow keys to move, eat food, avoid walls, and eat the NU logo for lives!"
+	
+.align 2
 
 PointsStr:
 	.string "Points: "
@@ -1004,12 +1239,9 @@ prevButtonStates: //previous states of all 4 push buttons
 	.hword 0x0000
 	
 prevKey:
-	.byte 0x00
+	.byte 0xf0
 	
-prevKeyState:
-	//0x00 -> a key was just released (incoming byte was 0xF0)
-	//0x01 -> any new key was detected (incoming byte was 0xE0)
-	//0x02 -> the new key was read (incoming byte was key val)
+numKeyRepetitions:
 	.byte 0x00
 	
 .align 2
@@ -1035,6 +1267,7 @@ snakeHead:
 	.hword 10 //sint16 max y-speed
 	.hword 0 //sint16 curr x-speed
 	.hword 0 //sint16 curr y-speed
+	.hword 0 //acceleration
 	
 //capacity: 30
 .align 2
@@ -1093,6 +1326,15 @@ bestFood:
 	.long WhiteSquare
 	.hword 216 //sint16 x
 	.hword 30 //sint16 y
+	.hword 0 //sint16 max x-speed
+	.hword 0 //sint16 max y-speed
+	.hword 0 //sint16 curr x-speed
+	.hword 0 //sint curr y-speed
+	
+powerup:
+	.long NULogo
+	.hword 14 //sint16 x
+	.hword 200 //sint16 y
 	.hword 0 //sint16 max x-speed
 	.hword 0 //sint16 max y-speed
 	.hword 0 //sint16 curr x-speed
@@ -1402,3 +1644,24 @@ randomIndex:
 .align 1
 randomNums:
 	.byte 120, 202, 105, 179, 140, 112, 160, 236, 58, 13, 36, 63, 59, 35, 112, 105, 199, 110, 206, 213, 81, 57, 110, 218, 74, 195, 185, 214, 173, 190, 182, 179, 68, 208, 14, 33, 220, 215, 149, 119, 174, 130, 208, 51, 197, 204, 156, 26, 160, 2, 186, 64, 183, 143, 164, 114, 68, 120, 91, 165, 11, 93, 68, 96, 93, 150, 186, 24, 85, 15, 133, 235, 203, 111, 149, 172, 116, 177, 108, 159, 49, 123, 78, 152, 20, 37, 100, 32, 31, 77, 145, 69, 238, 158, 113, 127, 226, 103, 70, 164, 17
+	
+.align 2
+
+NULogo:
+.hword 12, 16, 0xffff
+.hword 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff
+.hword 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff
+.hword 0xffff, 0xffff, 0x6992, 0x6992, 0xffff, 0xffff, 0xffff, 0x6992, 0x6992, 0x6992, 0xffff, 0xffff
+.hword 0xffff, 0xffff, 0x6992, 0x6992, 0x6992, 0xffff, 0xffff, 0x6992, 0x6992, 0x6992, 0xffff, 0xffff
+.hword 0xffff, 0xffff, 0x6992, 0x6992, 0x6992, 0xffff, 0xffff, 0xffff, 0x6992, 0x6992, 0xffff, 0xffff
+.hword 0xffff, 0xffff, 0x6992, 0xffff, 0x6992, 0x6992, 0xffff, 0xffff, 0xffff, 0x6992, 0xffff, 0xffff
+.hword 0xffff, 0xffff, 0x6992, 0xffff, 0x6992, 0x6992, 0xffff, 0xffff, 0xffff, 0x6992, 0xffff, 0xffff
+.hword 0xffff, 0xffff, 0x6992, 0xffff, 0xffff, 0x6992, 0x6992, 0xffff, 0xffff, 0x6992, 0xffff, 0xffff
+.hword 0xffff, 0xffff, 0x6992, 0xffff, 0xffff, 0x6992, 0x6992, 0xffff, 0xffff, 0x6992, 0xffff, 0xffff
+.hword 0xffff, 0xffff, 0x6992, 0xffff, 0xffff, 0xffff, 0x6992, 0x6992, 0xffff, 0x6992, 0xffff, 0xffff
+.hword 0xffff, 0xffff, 0x6992, 0xffff, 0xffff, 0xffff, 0x6992, 0x6992, 0xffff, 0x6992, 0xffff, 0xffff
+.hword 0xffff, 0xffff, 0x6992, 0x6992, 0xffff, 0xffff, 0xffff, 0x6992, 0xffff, 0x6992, 0xffff, 0xffff
+.hword 0xffff, 0xffff, 0x6992, 0x6992, 0x6992, 0xffff, 0xffff, 0x6992, 0x6992, 0x6992, 0xffff, 0xffff
+.hword 0xffff, 0xffff, 0x6992, 0x6992, 0x6992, 0xffff, 0xffff, 0xffff, 0x6992, 0x6992, 0xffff, 0xffff
+.hword 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff
+.hword 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff
